@@ -1,0 +1,88 @@
+<div class="auth-wrapper">
+  <section class="auth-hero">
+    <div class="hero-image"></div>
+    <div class="hero-overlay">
+      <div class="brand-mark">
+        <span class="logo-circle">
+          <span class="gear"></span>
+        </span>
+        <div>
+          <p class="brand-label">Store Management</p>
+          <p class="brand-subtitle">Optimize your retail operations</p>
+        </div>
+      </div>
+      <h1>Powerful POS for modern retailers</h1>
+      <p>
+        Centralize orders, inventory, and suppliers in one intuitive dashboard. Drive faster
+        decisions with real-time data.
+      </p>
+      <div class="hero-metrics">
+        <div>
+          <p class="metric-label">Smart Insights</p>
+          <p class="metric-value">+32%</p>
+        </div>
+        <div>
+          <p class="metric-label">Faster Fulfillment</p>
+          <p class="metric-value">24/7</p>
+        </div>
+        <div>
+          <p class="metric-label">Stock Accuracy</p>
+          <p class="metric-value">99%</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="auth-panel">
+    <div class="panel-header">
+      <p class="badge">Powered by DIRA Solution</p>
+      <h2>Sign in to continue</h2>
+      <p>Welcome back! Please enter your details.</p>
+    </div>
+
+    <form [formGroup]="loginForm" (ngSubmit)="onSubmit()" class="login-form">
+      <div class="form-group">
+        <label for="username">Username</label>
+        <input
+          type="text"
+          id="username"
+          formControlName="username"
+          class="form-control"
+          [class.error]="loginForm.get('username')?.invalid && loginForm.get('username')?.touched"
+          placeholder="admin"
+        />
+        <div
+          class="error-message"
+          *ngIf="loginForm.get('username')?.invalid && loginForm.get('username')?.touched"
+        >
+          {{ getErrorMessage('username') }}
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input
+          type="password"
+          id="password"
+          formControlName="password"
+          class="form-control"
+          [class.error]="loginForm.get('password')?.invalid && loginForm.get('password')?.touched"
+          placeholder="••••••"
+        />
+        <div
+          class="error-message"
+          *ngIf="loginForm.get('password')?.invalid && loginForm.get('password')?.touched"
+        >
+          {{ getErrorMessage('password') }}
+        </div>
+      </div>
+
+      <button type="submit" class="login-button" [disabled]="loginForm.invalid || isLoading">
+        <span *ngIf="!isLoading">Sign In</span>
+        <span *ngIf="isLoading">Signing In...</span>
+      </button>
+    </form>
+
+    <p class="panel-footer">Need access? Contact your administrator.</p>
+  </section>
+</div>

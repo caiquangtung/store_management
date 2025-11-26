@@ -1,0 +1,215 @@
+---
+description: Frontend rules for StoreManagement POS (Angular + Tailwind)
+globs: ["src/app/**", "src/styles.*", "tailwind.config.*", "angular.json"]
+alwaysApply: true
+---
+
+# 🎯 Project Goals
+
+- **System**: StoreManagement POS (Point of Sale).
+- **Backend Reference**: `.NET 9 Clean Architecture` (Fully completed, see `store_management_BE/README.md`).
+- **Frontend**: Angular 20 (Standalone) + Tailwind CSS v4.
+- **Priorities**: Operational speed, clear UI, high readability.
+
+# 🧱 Tech Stack & Architecture
+
+- **Core**: Angular 20+, TypeScript (Strict), Tailwind CSS v4.
+- **State Management**: Service-based (BehaviorSubject) for simplicity.
+- **API Pattern**: `BaseApiService` with `ApiResponse<T>` and `PagedResult<T>`.
+
+## Directory Structure (Current)
+
+```text
+src/app/
+ ├─ apis/               # API services inheriting BaseApiService
+ │   ├─ base-api.service.ts (✅ Done)
+ │   ├─ product.api.ts
+ │   ├─ order.api.ts
+ │   └─ ...
+ ├─ core/               # Singleton services, interceptors, guards
+ │   ├─ auth.interceptor.ts (✅ Done)
+ │   ├─ admin.guard.ts (✅ Done)
+ │   ├─ config.service.ts (✅ Done)
+ │   └─ env.service.ts (✅ Done)
+ ├─ shared/
+ │   ├─ components/     # Reusable UI components
+ │   │   ├─ data-table/ (✅ Done)
+ │   │   ├─ modal/ (✅ Done)
+ │   │   ├─ confirm-dialog/ (✅ Done)
+ │   │   ├─ toast/ (✅ Done)
+ │   │   ├─ pagination/ (✅ Done)
+ │   │   ├─ search-input/ (✅ Done)
+ │   │   └─ loading-spinner/ (✅ Done)
+ │   └─ directives/
+ │       └─ has-role.directive.ts (✅ Done)
+ ├─ features/           # Feature modules (Lazy loaded)
+ │   ├─ auth/ (✅ Done)
+ │   ├─ dashboard/ (✅ Done)
+ │   ├─ products/ (🚧 Phase 2)
+ │   ├─ customers/ (🚧 Phase 3)
+ │   ├─ orders/ (🚧 Phase 4)
+ │   ├─ inventory/ (🚧 Phase 5)
+ │   └─ ...
+ └─ types/              # Interfaces
+     ├─ api-response.ts (✅ Done)
+     └─ pagination.ts (✅ Done)
+```
+
+## 🎨 Design System (Tailwind v4)
+
+Colors defined in `src/styles.scss` via `@theme`:
+
+- **Primary Color**: `sky-600` (`bg-sky-600`, `text-sky-600`, `hover:bg-sky-700`)
+- **Secondary/Neutral**: `slate` (`text-slate-600`, `border-slate-200`, `bg-slate-50`)
+- **Status Colors**:
+  - ✅ Success: `green` (`text-green-600`, `bg-green-50`)
+  - ⚠️ Warning: `amber` (`text-amber-500`, `bg-amber-50`)
+  - ⛔ Danger: `red` (`text-red-600`, `bg-red-50`)
+
+**Layout Standards**:
+
+- Sidebar: `w-64` (256px)
+- Content Padding: `p-6` (24px)
+- Card: `bg-white rounded-lg shadow-sm p-4`
+- Button Primary: `bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-lg`
+- Border Radius: `rounded-lg`
+
+**Important**: Tailwind v4 requires custom colors in `@theme` block. `slate` is already defined.
+Add `sky` if using: `--color-sky-600: #0284c7;`
+
+## Coding Patterns
+
+### 1. API Service Pattern
+
+```typescript
+// Extend BaseApiService for all feature APIs
+@Injectable({ providedIn: "root" })
+export class ProductApi extends BaseApiService {
+  getProducts(
+    params: ProductQueryParams
+  ): Observable<ApiResponse<PagedResult<Product>>> {
+    return this.getPaged<Product>("products", params);
+  }
+
+  getProduct(id: number): Observable<ApiResponse<Product>> {
+    return this.getItem<Product>(`products/${id}`);
+  }
+
+  createProduct(data: CreateProductRequest): Observable<ApiResponse<Product>> {
+    return this.postItem<CreateProductRequest, Product>("products", data);
+  }
+}
+```
+
+### 2. Component Pattern
+
+```typescript
+// Use Standalone Components
+@Component({
+  selector: "app-product-list",
+  standalone: true,
+  imports: [CommonModule, DataTableComponent, SearchInputComponent],
+  template: `...`,
+})
+export class ProductListComponent {
+  // Use inject() for DI
+  private readonly productApi = inject(ProductApi);
+  private readonly toast = inject(ToastService);
+
+  // Reactive state
+  products: Product[] = [];
+  loading = false;
+  pagination: PaginationParams = { pageNumber: 1, pageSize: 10 };
+
+  loadProducts(): void {
+    this.loading = true;
+    this.productApi.getProducts(this.pagination).subscribe({
+      next: (res) => {
+        if (res.success) {
+          this.products = res.data.items;
+        }
+        this.loading = false;
+      },
+      error: (err) => {
+        this.toast.error(err.message);
+        this.loading = false;
+      },
+    });
+  }
+}
+```
+
+### 3. Form Pattern (Reactive Forms)
+
+```typescript
+// Use ReactiveFormsModule
+form = this.fb.group({
+  name: ['', [Validators.required, Validators.minLength(2)]],
+  price: [0, [Validators.required, Validators.min(0)]],
+  categoryId: [null, Validators.required]
+});
+
+onSubmit(): void {
+  if (this.form.invalid) {
+    this.form.markAllAsTouched();
+    return;
+  }
+  // Submit logic...
+}
+```
+
+### 4. Naming Conventions
+
+- **Files**: `kebab-case` (e.g., `product-list.component.ts`, `product.api.ts`)
+- **Classes**: `PascalCase` (e.g., `ProductListComponent`, `ProductApi`)
+- **Variables/Methods**: `camelCase` (e.g., `loadProducts()`, `isLoading`)
+- **Interfaces**: `PascalCase` without `I` prefix (e.g., `Product`, `ApiResponse`)
+- **Types files**: singular noun (e.g., `product.ts`, `order.ts`)
+
+### 5. Shared Components Usage
+
+```typescript
+// DataTable with pagination and actions
+<app-data-table
+  [columns]="columns"
+  [data]="products"
+  [loading]="loading"
+  [showPagination]="true"
+  [pageNumber]="pagination.pageNumber"
+  [pageSize]="pagination.pageSize"
+  [totalCount]="totalCount"
+  [actions]="tableActions"
+  (pageChange)="onPageChange($event)"
+  (actionTriggered)="onAction($event)"
+/>
+
+// Toast notifications
+this.toast.success('Product created successfully');
+this.toast.error('Failed to load products');
+
+// Confirm dialog before delete
+<app-confirm-dialog
+  [open]="showDeleteConfirm"
+  title="Delete Product"
+  message="Are you sure you want to delete this product?"
+  (confirmed)="deleteProduct()"
+  (cancelled)="showDeleteConfirm = false"
+/>
+```
+
+## Backend API Reference
+
+All endpoints available at `http://localhost:5000/api/`:
+
+```
+Auth:       POST /auth/login, /auth/refresh, /auth/logout
+Products:   GET/POST /products, GET/PUT/DELETE /products/{id}
+Categories: GET/POST /categories, GET/PUT/DELETE /categories/{id}
+Customers:  GET/POST /customers, GET/PUT/DELETE /customers/{id}
+Orders:     GET/POST /orders, POST /orders/{id}/checkout
+Inventory:  GET /inventory, GET /inventory/low-stock
+Promotions: GET /promotion, POST /promotion/validate
+Reports:    GET /reports/sales/overview, /reports/products/dead-stock
+```
+
+Response format: `ApiResponse<T>` with `{ success, message, data, error, timestamp }`
