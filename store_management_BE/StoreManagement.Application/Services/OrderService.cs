@@ -6,7 +6,6 @@ using StoreManagement.Application.DTOs.Order;
 using StoreManagement.Domain.Entities;
 using StoreManagement.Domain.Enums;
 using StoreManagement.Domain.Interfaces;
-using System.Threading;
 
 namespace StoreManagement.Application.Services;
 
@@ -14,93 +13,33 @@ public class OrderService : IOrderService
 {
     private readonly IOrderRepository _orderRepository;
     private readonly IProductRepository _productRepository;
-    private readonly IInventoryRepository _inventoryRepository;
-    private readonly IPromotionRepository _promotionRepository;
-    private readonly IPaymentRepository _paymentRepository;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IOrderPricingService _orderPricingService;
+    private readonly IOrderPaymentService _orderPaymentService;
+    private readonly IOrderInventoryService _orderInventoryService;
     private readonly IMapper _mapper;
     private readonly ILogger<OrderService> _logger;
 
     public OrderService(
         IOrderRepository orderRepository,
         IProductRepository productRepository,
-        IInventoryRepository inventoryRepository,
-        IPromotionRepository promotionRepository,
-        IPaymentRepository paymentRepository,
         IUnitOfWork unitOfWork,
+        IOrderPricingService orderPricingService,
+        IOrderPaymentService orderPaymentService,
+        IOrderInventoryService orderInventoryService,
         IMapper mapper,
         ILogger<OrderService> logger)
     {
         _orderRepository = orderRepository;
         _productRepository = productRepository;
-        _inventoryRepository = inventoryRepository;
-        _promotionRepository = promotionRepository;
-        _paymentRepository = paymentRepository;
         _unitOfWork = unitOfWork;
+        _orderPricingService = orderPricingService;
+        _orderPaymentService = orderPaymentService;
+        _orderInventoryService = orderInventoryService;
         _mapper = mapper;
         _logger = logger;
     }
-
-    private async Task RecalculateOrderTotalAsync(Order order)
-    {
-        var total = order.OrderItems.Sum(oi => oi.Quantity * oi.Price);
-        order.TotalAmount = total;
-        order.DiscountAmount = 0;
-
-        if (order.PromoId.HasValue)
-        {
-            var promotion = await _promotionRepository.GetByIdAsync(order.PromoId.Value);
-            var now = DateTime.UtcNow;
-            var isValid = promotion != null
-                          && string.Equals(promotion.Status, "active", StringComparison.OrdinalIgnoreCase)
-                          && now >= promotion.StartDate
-                          && now <= promotion.EndDate
-                          && total >= promotion.MinOrderAmount
-                          && (promotion.UsageLimit == 0 || promotion.UsedCount < promotion.UsageLimit);
-
-            if (isValid)
-            {
-                order.DiscountAmount = await CalculateDiscountAsync(promotion!, total);
-            }
-            else
-            {
-                order.PromoId = null;
-                order.DiscountAmount = 0;
-            }
-        }
-    }
-
-    private Task<decimal> CalculateDiscountAsync(Promotion promotion, decimal orderAmount)
-    {
-        decimal discount = promotion.DiscountType == DiscountType.Percent
-            ? orderAmount * (promotion.DiscountValue / 100)
-            : Math.Min(promotion.DiscountValue, orderAmount);
-
-        return Task.FromResult(discount);
-    }
-
     private static bool IsPending(Order order) => order.Status == OrderStatus.Pending;
-
-    private async Task<Promotion> GetValidPromotionByCodeAsync(string promoCode, decimal orderTotal)
-    {
-        var promotion = await _promotionRepository.GetByPromoCodeAsync(promoCode);
-        if (promotion == null)
-            throw new InvalidOperationException("Promotion not found");
-
-        var now = DateTime.UtcNow;
-        if (!string.Equals(promotion.Status, "active", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Promotion is not active");
-        if (now < promotion.StartDate)
-            throw new InvalidOperationException("Promotion has not started yet");
-        if (now > promotion.EndDate)
-            throw new InvalidOperationException("Promotion has expired");
-        if (promotion.MinOrderAmount > 0 && orderTotal < promotion.MinOrderAmount)
-            throw new InvalidOperationException($"Order amount must be at least {promotion.MinOrderAmount:C}");
-        if (promotion.UsageLimit > 0 && promotion.UsedCount >= promotion.UsageLimit)
-            throw new InvalidOperationException("Promotion usage limit has been reached");
-
-        return promotion;
-    }
 
     public async Task<OrderResponse?> GetByIdAsync(int orderId)
     {
@@ -171,15 +110,7 @@ public class OrderService : IOrderService
                 var product = await _productRepository.GetByIdAsync(item.ProductId)
                               ?? throw new InvalidOperationException("Product not found");
 
-                var inventory = await _inventoryRepository.GetByProductIdAsync(item.ProductId)
-                               ?? throw new InvalidOperationException("Inventory not found for product");
-
-                if (inventory.Quantity < item.Quantity)
-                    throw new InvalidOperationException(
-                        $"Insufficient inventory. Available: {inventory.Quantity}, Requested: {item.Quantity}");
-
-                inventory.Quantity -= item.Quantity;
-                await _inventoryRepository.UpdateAsync(inventory);
+                await _orderInventoryService.ReserveAsync(item.ProductId, item.Quantity);
 
                 order.OrderItems.Add(new OrderItem
                 {
@@ -190,25 +121,13 @@ public class OrderService : IOrderService
                 });
             }
 
-            await RecalculateOrderTotalAsync(order);
+            await _orderPricingService.RecalculateOrderAsync(order);
 
             if (request.PromoId.HasValue)
             {
-                var promotion = await _promotionRepository.GetByIdAsync(request.PromoId.Value)
-                               ?? throw new InvalidOperationException("Promotion not found");
-
-                var now = DateTime.UtcNow;
-                if (!string.Equals(promotion.Status, "active", StringComparison.OrdinalIgnoreCase)
-                    || now < promotion.StartDate
-                    || now > promotion.EndDate
-                    || (promotion.MinOrderAmount > 0 && (order.TotalAmount ?? 0) < promotion.MinOrderAmount)
-                    || (promotion.UsageLimit > 0 && promotion.UsedCount >= promotion.UsageLimit))
-                {
-                    throw new InvalidOperationException("Promotion is not valid for this order");
-                }
-
+                var promotion = await _orderPricingService.ValidatePromotionByIdAsync(request.PromoId.Value, order.TotalAmount ?? 0);
                 order.PromoId = promotion.PromoId;
-                order.DiscountAmount = await CalculateDiscountAsync(promotion, order.TotalAmount ?? 0);
+                order.DiscountAmount = await _orderPricingService.CalculateDiscountAsync(promotion, order.TotalAmount ?? 0);
             }
 
             await _orderRepository.AddAsync(order);
@@ -234,7 +153,7 @@ public class OrderService : IOrderService
             if (!IsPending(order)) throw new InvalidOperationException("Cannot update order that is not pending");
 
             order.CustomerId = request.CustomerId;
-            await RecalculateOrderTotalAsync(order);
+        await _orderPricingService.RecalculateOrderAsync(order);
 
             await _orderRepository.UpdateAsync(order);
             await _unitOfWork.CommitTransactionAsync();
@@ -260,16 +179,7 @@ public class OrderService : IOrderService
             if (order.Status != OrderStatus.Pending)
                 throw new InvalidOperationException("Only pending orders can be cancelled");
 
-            foreach (var item in order.OrderItems)
-            {
-                if (!item.ProductId.HasValue) continue;
-                var inventory = await _inventoryRepository.GetByProductIdAsync(item.ProductId.Value);
-                if (inventory != null)
-                {
-                    inventory.Quantity += item.Quantity;
-                    await _inventoryRepository.UpdateAsync(inventory);
-                }
-            }
+            await _orderInventoryService.ReleaseOrderAsync(order);
 
             order.Status = OrderStatus.Canceled;
             await _orderRepository.UpdateAsync(order);
@@ -296,15 +206,7 @@ public class OrderService : IOrderService
             var product = await _productRepository.GetByIdAsync(request.ProductId)
                           ?? throw new InvalidOperationException("Product not found");
 
-            var inventory = await _inventoryRepository.GetByProductIdAsync(request.ProductId)
-                           ?? throw new InvalidOperationException("Inventory not found for product");
-
-            if (inventory.Quantity < request.Quantity)
-                throw new InvalidOperationException(
-                    $"Insufficient inventory. Available: {inventory.Quantity}, Requested: {request.Quantity}");
-
-            inventory.Quantity -= request.Quantity;
-            await _inventoryRepository.UpdateAsync(inventory);
+            await _orderInventoryService.ReserveAsync(request.ProductId, request.Quantity);
 
             var existingItem = order.OrderItems.FirstOrDefault(oi => oi.ProductId == request.ProductId);
             if (existingItem != null)
@@ -324,7 +226,7 @@ public class OrderService : IOrderService
                 });
             }
 
-            await RecalculateOrderTotalAsync(order);
+        await _orderPricingService.RecalculateOrderAsync(order);
             await _unitOfWork.CommitTransactionAsync();
 
             var updatedOrder = await _orderRepository.GetByIdWithDetailsAsync(orderId);
@@ -356,30 +258,17 @@ public class OrderService : IOrderService
                 if (!orderItem.ProductId.HasValue)
                     throw new InvalidOperationException("Order item has no product ID");
 
-                var inventory = await _inventoryRepository.GetByProductIdAsync(orderItem.ProductId.Value)
-                               ?? throw new InvalidOperationException("Inventory not found for product");
-
-                if (inventory.Quantity < quantityDelta)
-                    throw new InvalidOperationException(
-                        $"Insufficient inventory. Available: {inventory.Quantity}, Needed: {quantityDelta}");
-
-                inventory.Quantity -= quantityDelta;
-                await _inventoryRepository.UpdateAsync(inventory);
-            }
-            else if (quantityDelta < 0 && orderItem.ProductId.HasValue)
-            {
-                var inventory = await _inventoryRepository.GetByProductIdAsync(orderItem.ProductId.Value);
-                if (inventory != null)
-                {
-                    inventory.Quantity += Math.Abs(quantityDelta);
-                    await _inventoryRepository.UpdateAsync(inventory);
-                }
-            }
+            await _orderInventoryService.ReserveAsync(orderItem.ProductId.Value, quantityDelta);
+        }
+        else if (quantityDelta < 0 && orderItem.ProductId.HasValue)
+        {
+            await _orderInventoryService.ReleaseAsync(orderItem.ProductId.Value, Math.Abs(quantityDelta));
+        }
 
             orderItem.Quantity = request.Quantity;
             orderItem.Subtotal = orderItem.Quantity * orderItem.Price;
 
-            await RecalculateOrderTotalAsync(order);
+        await _orderPricingService.RecalculateOrderAsync(order);
             await _unitOfWork.CommitTransactionAsync();
 
             var updatedOrder = await _orderRepository.GetByIdWithDetailsAsync(orderId);
@@ -404,19 +293,14 @@ public class OrderService : IOrderService
             var orderItem = order.OrderItems.FirstOrDefault(oi => oi.OrderItemId == itemId)
                              ?? throw new InvalidOperationException("Order item not found");
 
-            if (orderItem.ProductId.HasValue)
-            {
-                var inventory = await _inventoryRepository.GetByProductIdAsync(orderItem.ProductId.Value);
-                if (inventory != null)
-                {
-                    inventory.Quantity += orderItem.Quantity;
-                    await _inventoryRepository.UpdateAsync(inventory);
-                }
-            }
+        if (orderItem.ProductId.HasValue)
+        {
+            await _orderInventoryService.ReleaseAsync(orderItem.ProductId.Value, orderItem.Quantity);
+        }
 
             order.OrderItems.Remove(orderItem);
 
-            await RecalculateOrderTotalAsync(order);
+        await _orderPricingService.RecalculateOrderAsync(order);
             await _unitOfWork.CommitTransactionAsync();
 
             var updatedOrder = await _orderRepository.GetByIdWithDetailsAsync(orderId);
@@ -440,11 +324,11 @@ public class OrderService : IOrderService
             if (order.OrderItems == null || !order.OrderItems.Any())
                 throw new InvalidOperationException("Order has no items");
 
-            await RecalculateOrderTotalAsync(order);
-            var promotion = await GetValidPromotionByCodeAsync(request.PromoCode, order.TotalAmount ?? 0);
+        await _orderPricingService.RecalculateOrderAsync(order);
+        var promotion = await _orderPricingService.ValidatePromotionByCodeAsync(request.PromoCode, order.TotalAmount ?? 0);
 
             order.PromoId = promotion.PromoId;
-            order.DiscountAmount = await CalculateDiscountAsync(promotion, order.TotalAmount ?? 0);
+            order.DiscountAmount = await _orderPricingService.CalculateDiscountAsync(promotion, order.TotalAmount ?? 0);
 
             await _orderRepository.UpdateAsync(order);
             await _unitOfWork.CommitTransactionAsync();
@@ -471,7 +355,7 @@ public class OrderService : IOrderService
 
             order.PromoId = null;
             order.DiscountAmount = 0;
-            await RecalculateOrderTotalAsync(order);
+        await _orderPricingService.RecalculateOrderAsync(order);
 
             await _unitOfWork.CommitTransactionAsync();
 
@@ -495,51 +379,18 @@ public class OrderService : IOrderService
             if (!IsPending(order)) throw new InvalidOperationException("Cannot checkout order that is not pending");
             if (order.OrderItems.Count == 0) throw new InvalidOperationException("Cannot checkout empty order");
 
-            await RecalculateOrderTotalAsync(order);
+        await _orderPricingService.RecalculateOrderAsync(order);
 
             if (!string.IsNullOrWhiteSpace(request.PromoCode))
             {
-                var promotion = await GetValidPromotionByCodeAsync(request.PromoCode, order.TotalAmount ?? 0);
-                order.PromoId = promotion.PromoId;
-                order.DiscountAmount = await CalculateDiscountAsync(promotion, order.TotalAmount ?? 0);
-            }
+            var promotion = await _orderPricingService.ValidatePromotionByCodeAsync(request.PromoCode, order.TotalAmount ?? 0);
+            order.PromoId = promotion.PromoId;
+            order.DiscountAmount = await _orderPricingService.CalculateDiscountAsync(promotion, order.TotalAmount ?? 0);
+        }
 
-            var finalAmount = Math.Max(0, (order.TotalAmount ?? 0) - order.DiscountAmount);
+        await _orderPaymentService.HandleCheckoutAsync(order, request);
 
-            if (request.Amount != finalAmount)
-                throw new InvalidOperationException($"Payment amount {request.Amount:C} does not match order amount {finalAmount:C}");
-
-            if (request.CustomerPaid > 0 && request.CustomerPaid < finalAmount)
-                throw new InvalidOperationException("Customer paid amount is insufficient");
-
-            if (!Enum.TryParse<PaymentMethod>(request.PaymentMethod, true, out var paymentMethod))
-                throw new InvalidOperationException($"Invalid payment method: {request.PaymentMethod}");
-
-            if (request.CustomerId.HasValue)
-                order.CustomerId = request.CustomerId;
-
-            var payment = new Payment
-            {
-                OrderId = orderId,
-                Amount = finalAmount,
-                PaymentMethod = paymentMethod,
-                PaymentDate = DateTime.UtcNow
-            };
-            await _paymentRepository.AddAsync(payment);
-
-            order.Status = OrderStatus.Paid;
-
-            if (order.PromoId.HasValue)
-            {
-                var promotion = await _promotionRepository.GetByIdAsync(order.PromoId.Value);
-                if (promotion != null)
-                {
-                    promotion.UsedCount++;
-                    await _promotionRepository.UpdateAsync(promotion);
-                }
-            }
-
-            await _unitOfWork.CommitTransactionAsync();
+        await _unitOfWork.CommitTransactionAsync();
 
             var updatedOrder = await _orderRepository.GetByIdWithDetailsAsync(orderId);
             return _mapper.Map<OrderResponse>(updatedOrder!);

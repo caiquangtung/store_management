@@ -1,11 +1,8 @@
 using StoreManagement.Domain.Entities;
+using StoreManagement.Domain.Models;
+
 namespace StoreManagement.Domain.Interfaces;
-public class SalesSummaryRawData
-{
-    public string Period { get; set; } = string.Empty;
-    public decimal TotalRevenue { get; set; }
-    public int NumberOfOrders { get; set; }
-}
+
 public interface IOrderRepository : IRepository<Order>
 {
     Task<IEnumerable<Order>> GetByCustomerAsync(int customerId);

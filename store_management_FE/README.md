@@ -64,7 +64,7 @@ Angular CLI sẽ tự động phát hiện cấu hình này và biên dịch cá
 | Base API Service & Typings  | ✅         | Common HTTP helper + ApiResponse/PagedResult types |
 | **Main Layout Component**   | ✅ **NEW** | **Reusable sidebar + topbar layout**               |
 | **Order Detail Modal**      | ✅ **NEW** | **View order details in modal popup**              |
-| **Material Icons**          | ✅ **NEW** | **Angular Material Icons integration**             |
+ | **Material Icons**          | ✅ **NEW** | **Angular Material Icons integration**             |
 | **Icon Component**          | ✅ **NEW** | **Reusable icon component**                        |
 
 ---

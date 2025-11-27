@@ -4,6 +4,7 @@ using StoreManagement.Domain.Interfaces;
 using StoreManagement.Infrastructure.Data;
 using StoreManagement.Infrastructure.Repositories;
 using System.Linq.Expressions;
+using StoreManagement.Domain.Models;
 
 namespace StoreManagement.Infrastructure.Repositories;
 

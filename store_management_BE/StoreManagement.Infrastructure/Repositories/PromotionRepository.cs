@@ -53,7 +53,6 @@ public class PromotionRepository : BaseRepository<Promotion>, IPromotionReposito
         if (promotion != null)
         {
             promotion.UsedCount++;
-            await _context.SaveChangesAsync();
         }
     }
 
@@ -64,6 +63,5 @@ public class PromotionRepository : BaseRepository<Promotion>, IPromotionReposito
         {
             promotion.Status = "inactive";
         }
-        await _context.SaveChangesAsync();
     }
 }

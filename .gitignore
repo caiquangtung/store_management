@@ -1,0 +1,79 @@
+### General OS & editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.cursor
+
+### Logs & temp
+logs/
+**/*.log
+**/*.tmp
+**/tmp/
+**/temp/
+
+### Environment & secrets
+.env
+.env.*
+**/*.env
+secrets/**
+
+### Node / Angular (Frontend)
+store_management_FE/node_modules/
+store_management_FE/dist/
+store_management_FE/coverage/
+store_management_FE/.angular/cache/
+store_management_FE/.npm/
+store_management_FE/.cache/
+
+### Angular build artifacts (root if run from workspace)
+node_modules/
+dist/
+coverage/
+.angular/cache/
+
+### Build outputs (Backend .NET)
+store_management_BE/**/bin/
+store_management_BE/**/obj/
+store_management_BE/.vs/
+
+### .NET user-specific
+**/*.user
+**/*.suo
+**/*.userprefs
+**/*.rsuser
+**/*.ide
+
+### Test results
+store_management_BE/**/TestResults/
+
+### Tooling
+.nyc_output
+.eslintcache
+.stylelintcache
+
+### Packaging caches
+**/.cache/
+**/.parcel-cache/
+
+### Docker & container (keep compose files tracked)
+.docker/
+**/.dockerignore
+
+### Database & local storage files
+**/*.mdf
+**/*.ldf
+**/*.bak
+**/*.db
+**/*.sqlite
+
+### Frontend artifacts
+store_management_FE/.sass-cache/
+store_management_FE/.tailwind-cache/
+
+### Static asset builds
+store_management_BE/**/wwwroot/**/cache/
+store_management_BE/**/wwwroot/**/temp/
+
+### Local-only appsettings
+store_management_BE/StoreManagement.API/appsettings.Local.json

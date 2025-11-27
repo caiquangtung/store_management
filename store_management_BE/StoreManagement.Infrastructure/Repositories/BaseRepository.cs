@@ -94,8 +94,4 @@ public abstract class BaseRepository<T> : IRepository<T> where T : class
         return await _dbSet.CountAsync();
     }
 
-    public virtual async Task SaveChangesAsync()
-    {
-        await _context.SaveChangesAsync();
-    }
 }
